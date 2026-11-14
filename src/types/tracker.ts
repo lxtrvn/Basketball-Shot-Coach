@@ -39,6 +39,7 @@ export interface HoopZone {
   width: number;
   height: number;
   rimY: number; // Y level of the rim line
+  backboardBox?: BoundingBox | null;
 }
 
 export interface ShotTrajectory {
@@ -53,16 +54,6 @@ export interface ShotTrajectory {
   shotVelocityMph: number;
   durationSec: number;
   outcome: 'make' | 'miss' | 'in_flight' | 'ready';
-}
-
-export interface AIAnalysisResult {
-  shotScore: number;
-  arcRating: 'Optimal (48°-54°)' | 'Flat (<45°)' | 'Too High (>56°)' | 'Variable';
-  mechanicsBreakdown: string;
-  releaseFeedback: string;
-  makeMissDiagnosis: string;
-  actionableDrills: string[];
-  keyMetricsSummary: string;
 }
 
 export type ViewMode = 'annotated' | 'binary_mask' | 'trajectory_arc' | 'split';

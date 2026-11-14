@@ -3,15 +3,13 @@ import { Header } from './components/Header';
 import { VideoStudio } from './components/VideoStudio';
 import { TelemetryHud } from './components/TelemetryHud';
 import { CvControls } from './components/CvControls';
-import { GeminiCoachPanel } from './components/GeminiCoachPanel';
-import { CleanNotebookViewer } from './components/CleanNotebookViewer';
 import { TrajectoryVisualizer } from './components/TrajectoryVisualizer';
 import { ArchitectureGuide } from './components/ArchitectureGuide';
-import { HSVSettings, HoopZone, ShotTrajectory, AIAnalysisResult } from './types/tracker';
-import { Sparkles, Sliders, Upload, Target, Video } from 'lucide-react';
+import { HSVSettings, HoopZone, ShotTrajectory } from './types/tracker';
+import { Upload } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'tracker' | 'telemetry' | 'notebook' | 'architecture'>('tracker');
+  const [activeTab, setActiveTab] = useState<'tracker' | 'telemetry' | 'architecture'>('tracker');
 
   // OpenCV Basketball Leather HSV Thresholds (OpenCV H: 0-180)
   const [settings, setSettings] = useState<HSVSettings>({
@@ -50,61 +48,19 @@ export default function App() {
     outcome: 'make',
   });
 
-  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResult | null>({
-    shotScore: 92,
-    arcRating: 'Optimal (48°-54°)',
-    mechanicsBreakdown:
-      'High-release trajectory with a 52° launch angle provides optimal ball clearance and soft descent. Ball apex reaches maximum elevation before entering the cylinder at 46°.',
-    releaseFeedback:
-      'Clean wrist snap with continuous elbow extension. Backspin frequency stabilizes flight against aerodynamic turbulence.',
-    makeMissDiagnosis:
-      'Trajectory intersected center-rim cylinder directly within the optimal 46° entry envelope, providing ~14 inches of effective basket aperture for a clean swish.',
-    actionableDrills: [
-      'Form Shooting Progression: 50 shots from 5 ft focusing strictly on 50° high-release follow-through.',
-      'Rainbow Arc Tape Drill: Place visual marker at 12 ft elevation to enforce high-arc clearance.',
-      'Catch & Elevate 3PT: Quick-trigger rhythm jumpers off lateral screen drift.',
-    ],
-    keyMetricsSummary:
-      'Exceptional arc geometry matching modern NBA shooting efficiency benchmarks. Maintain this 50°-53° launch angle for long-range consistency.',
-  });
-
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isCalibratingHoop, setIsCalibratingHoop] = useState(false);
-  const [snapshotDataUrl, setSnapshotDataUrl] = useState<string | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-
-  // Trigger Gemini AI Shot Analysis
-  const handleTriggerGeminiAnalysis = async () => {
-    setIsAnalyzing(true);
-    try {
-      const res = await fetch('/api/shot/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telemetry,
-          frameImageBase64: snapshotDataUrl,
-        }),
-      });
-      const data = await res.json();
-      if (data.analysis) {
-        setAiAnalysis(data.analysis);
-      }
-    } catch (err) {
-      console.error('Failed to analyze shot:', err);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+  const [isYoutubeModalOpen, setIsYoutubeModalOpen] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      {/* Header complying with Top Bar Contract */}
+      {/* Header */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onTriggerGeminiAnalysis={handleTriggerGeminiAnalysis}
-        isAnalyzing={isAnalyzing}
         onOpenUpload={() => setIsUploadModalOpen(true)}
+        onOpenYoutubeModal={() => setIsYoutubeModalOpen(true)}
       />
 
       {/* Main Container */}
@@ -124,9 +80,12 @@ export default function App() {
                   setTelemetry={setTelemetry}
                   isCalibratingHoop={isCalibratingHoop}
                   setIsCalibratingHoop={setIsCalibratingHoop}
-                  onFrameCaptured={setSnapshotDataUrl}
                   isUploadModalOpen={isUploadModalOpen}
                   setIsUploadModalOpen={setIsUploadModalOpen}
+                  isYoutubeModalOpen={isYoutubeModalOpen}
+                  setIsYoutubeModalOpen={setIsYoutubeModalOpen}
+                  youtubeUrl={youtubeUrl}
+                  setYoutubeUrl={setYoutubeUrl}
                 />
 
                 {/* Telemetry HUD */}
@@ -145,35 +104,39 @@ export default function App() {
                   setIsCalibratingHoop={setIsCalibratingHoop}
                 />
 
-                {/* Quick Action Card */}
-                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-lg">
-                  <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider mb-2 flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>Gemini Vision AI Coach</span>
-                  </h4>
-                  <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-                    Once the video completes or a shot is tracked, run the multimodal evaluation to generate personalized shooting drills and mechanical breakdown.
+                {/* Video Inputs Panel (Upload & YouTube) */}
+                <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-lg space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                      <Upload className="w-4 h-4 text-amber-400" />
+                      <span>Video Input Sources</span>
+                    </h4>
+                    <span className="text-[10px] text-slate-500 font-mono">Upload / YouTube</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Provide a local video clip, enable live camera streaming, or enter any YouTube link to track shooting mechanics locally.
                   </p>
-                  <button
-                    onClick={handleTriggerGeminiAnalysis}
-                    disabled={isAnalyzing}
-                    className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs rounded-lg shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                    <span>{isAnalyzing ? 'Analyzing Arc...' : 'Analyze Shot Mechanics'}</span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setIsUploadModalOpen(true)}
+                      className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-xs rounded-lg border border-slate-700 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Upload Video</span>
+                    </button>
+                    <button
+                      onClick={() => setIsYoutubeModalOpen(true)}
+                      className="py-2.5 px-3 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 hover:text-white font-semibold text-xs rounded-lg border border-rose-800/60 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <svg className="w-3.5 h-3.5 fill-current text-rose-500" viewBox="0 0 24 24">
+                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                      </svg>
+                      <span>YouTube Link</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-
-            {/* Bottom Full-Width AI Coaching Panel */}
-            <GeminiCoachPanel
-              analysis={aiAnalysis}
-              telemetry={telemetry}
-              isLoading={isAnalyzing}
-              onRefreshAnalysis={handleTriggerGeminiAnalysis}
-              snapshotDataUrl={snapshotDataUrl}
-            />
           </div>
         )}
 
@@ -185,12 +148,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 3: Cleaned Python/Gemini Notebook */}
-        {activeTab === 'notebook' && (
-          <CleanNotebookViewer settings={settings} hoopZone={hoopZone} />
-        )}
-
-        {/* Tab 4: Architecture & CV Math */}
+        {/* Tab 3: Architecture & CV Math */}
         {activeTab === 'architecture' && <ArchitectureGuide />}
       </main>
 
@@ -198,9 +156,9 @@ export default function App() {
       <footer className="border-t border-slate-800 bg-slate-950 py-6 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-300 font-display">HoopVision AI</span>
+            <span className="font-semibold text-slate-300 font-display">HoopVision CV</span>
             <span>·</span>
-            <span>OpenCV Basketball Computer Vision & Gemini 3.8 Flash Analytics</span>
+            <span>Client-Side OpenCV Basketball Tracking &amp; Trajectory Physics</span>
           </div>
 
           <div className="flex items-center gap-4 text-slate-400">

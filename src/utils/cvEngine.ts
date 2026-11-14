@@ -1,4 +1,11 @@
-import { BallDetection, BoundingBox, HSVSettings, HoopZone, Point, ShotTrajectory } from '../types/tracker';
+import {
+  BallDetection,
+  BoundingBox,
+  HSVSettings,
+  HoopZone,
+  Point,
+  ShotTrajectory,
+} from '../types/tracker';
 
 /**
  * Fast RGB to HSV conversion matching OpenCV's cv2.cvtColor(BGR2HSV)
@@ -101,7 +108,8 @@ export function generateHsvMask(
 export function detectBasketballInMask(
   maskData: ImageData,
   settings: HSVSettings,
-  lastKnownPos: Point | null
+  lastKnownPos: Point | null,
+  hoopZone?: HoopZone | null
 ): BallDetection | null {
   const width = maskData.width;
   const height = maskData.height;
@@ -109,7 +117,9 @@ export function detectBasketballInMask(
 
   // Grid scan for connected components with step
   const step = 2;
-  const visited = new Uint8Array((width * height) / (step * step));
+  const gWidth = Math.ceil(width / step);
+  const gHeight = Math.ceil(height / step);
+  const visited = new Uint8Array(gWidth * gHeight);
 
   const candidates: Array<{
     x: number;
@@ -120,10 +130,8 @@ export function detectBasketballInMask(
     box: BoundingBox;
   }> = [];
 
-  const getIdx = (gx: number, gy: number) => gy * Math.floor(width / step) + gx;
-
-  const gWidth = Math.floor(width / step);
-  const gHeight = Math.floor(height / step);
+  const getIdx = (gx: number, gy: number) => gy * gWidth + gx;
+  const maxTeleportDist = Math.max(120, Math.round(Math.max(width, height) * 0.22));
 
   for (let gy = 1; gy < gHeight - 1; gy += 2) {
     for (let gx = 1; gx < gWidth - 1; gx += 2) {
@@ -148,7 +156,7 @@ export function detectBasketballInMask(
         visited[vIdx] = 1;
 
         let qHead = 0;
-        while (qHead < queue.length && queue.length < 5000) {
+        while (qHead < queue.length && queue.length < 8000) {
           const curGx = queue[qHead++];
           const curGy = queue[qHead++];
           const curPx = curGx * step;
@@ -174,10 +182,14 @@ export function detectBasketballInMask(
             if (nx >= 0 && nx < gWidth && ny >= 0 && ny < gHeight) {
               const nIdx = getIdx(nx, ny);
               if (visited[nIdx] === 0) {
-                const nPixIdx = (ny * step * width + nx * step) * 4;
-                if (data[nPixIdx] > 128) {
-                  visited[nIdx] = 1;
-                  queue.push(nx, ny);
+                const nPx = nx * step;
+                const nPy = ny * step;
+                if (nPx < width && nPy < height) {
+                  const nPixIdx = (nPy * width + nPx) * 4;
+                  if (data[nPixIdx] > 128) {
+                    visited[nIdx] = 1;
+                    queue.push(nx, ny);
+                  }
                 }
               }
             }
@@ -229,14 +241,26 @@ export function detectBasketballInMask(
   for (const cand of candidates) {
     let score = cand.circularity * 100;
 
+    // Penalize stationary orange rim noise when ball was last tracked elsewhere
+    if (hoopZone && lastKnownPos) {
+      const nearRimLine =
+        cand.x >= hoopZone.x - 10 &&
+        cand.x <= hoopZone.x + hoopZone.width + 10 &&
+        Math.abs(cand.y - hoopZone.rimY) < 18;
+      const distFromLast = Math.hypot(cand.x - lastKnownPos.x, cand.y - lastKnownPos.y);
+      if (nearRimLine && distFromLast > maxTeleportDist * 0.7) {
+        score -= 80;
+      }
+    }
+
     if (lastKnownPos) {
       const dx = cand.x - lastKnownPos.x;
       const dy = cand.y - lastKnownPos.y;
       const dist = Math.hypot(dx, dy);
 
       // Penalize physically impossible velocity jumps (teleporting across screen)
-      if (dist < 120) {
-        score += (120 - dist) * 0.8;
+      if (dist < maxTeleportDist) {
+        score += (maxTeleportDist - dist) * 0.8;
       } else {
         score -= dist * 0.5;
       }
@@ -289,10 +313,6 @@ export function fitParabola(points: Point[]): { a: number; b: number; c: number 
     sy0 += y;
   }
 
-  // Gaussian elimination for 3x3 system:
-  // [s4 s3 s2] [a] = [sy2]
-  // [s3 s2 s1] [b] = [sy1]
-  // [s2 s1 n ] [c] = [sy0]
   const matrix = [
     [s4, s3, s2, sy2],
     [s3, s2, s1, sy1],
@@ -300,7 +320,6 @@ export function fitParabola(points: Point[]): { a: number; b: number; c: number 
   ];
 
   for (let i = 0; i < 3; i++) {
-    // Pivot
     let maxRow = i;
     for (let k = i + 1; k < 3; k++) {
       if (Math.abs(matrix[k][i]) > Math.abs(matrix[maxRow][i])) {
@@ -325,8 +344,6 @@ export function fitParabola(points: Point[]): { a: number; b: number; c: number 
   const b = (matrix[1][3] - matrix[1][2] * c) / matrix[1][1];
   const a = (matrix[0][3] - matrix[0][2] * c - matrix[0][1] * b) / matrix[0][0];
 
-  // In screen coordinates (Y down), a basketball arc opening downward has a positive 'a' (curves upward)
-  // Check sanity
   if (isNaN(a) || isNaN(b) || isNaN(c)) return null;
 
   return { a, b, c };
@@ -372,18 +389,16 @@ export function computeTrajectoryTelemetry(
   if (parabola && parabola.a > 0.00001) {
     const calcApexX = -parabola.b / (2 * parabola.a);
     const calcApexY = parabola.a * calcApexX * calcApexX + parabola.b * calcApexX + parabola.c;
-    // If the fitted vertex is reasonably near our data range
     if (calcApexY <= apexPoint.y + 10) {
       apexPx = calcApexY;
     }
   }
 
   // Release angle: tangent to trajectory at release point
-  // Cartesian dy = -(y1 - y0)
-  let releaseAngleDeg = 48; // default benchmark
+  let releaseAngleDeg = 48;
   if (points.length >= 3) {
     const dx = points[2].x - points[0].x;
-    const dy = -(points[2].y - points[0].y); // invert screen Y
+    const dy = -(points[2].y - points[0].y);
     if (Math.abs(dx) > 0.001) {
       const rad = Math.atan2(dy, Math.abs(dx));
       releaseAngleDeg = Math.round((rad * 180) / Math.PI);
@@ -396,9 +411,7 @@ export function computeTrajectoryTelemetry(
   let entryAngleDeg = 44;
   const rimCenter = hoopZone.x + hoopZone.width / 2;
   if (parabola) {
-    // slope at hoop x: dy_screen/dx = 2*a*rimX + b
     const slopeScreen = 2 * parabola.a * rimCenter + parabola.b;
-    // Downward descent: slopeScreen is positive in screen coords
     const cartesianSlope = -slopeScreen;
     const entryRad = Math.atan(Math.abs(cartesianSlope));
     entryAngleDeg = Math.round((entryRad * 180) / Math.PI);
@@ -427,7 +440,6 @@ export function computeTrajectoryTelemetry(
   const hoopRight = hoopZone.x + hoopZone.width;
   const rimY = hoopZone.rimY;
 
-  // Check if ball approached or entered hoop cylinder
   let crossedRim = false;
   let nearRim = false;
 
@@ -435,7 +447,6 @@ export function computeTrajectoryTelemetry(
     const prev = points[i - 1];
     const curr = points[i];
 
-    // Check if crossing rim line from above
     if (prev.y <= rimY && curr.y >= rimY) {
       if (curr.x >= hoopLeft - 5 && curr.x <= hoopRight + 5) {
         crossedRim = true;
@@ -450,10 +461,8 @@ export function computeTrajectoryTelemetry(
 
   const lastPoint = points[points.length - 1];
   if (crossedRim) {
-    // Descended below rim within basket bounds -> Make!
     outcome = 'make';
   } else if (nearRim && lastPoint.y > rimY + 15) {
-    // Crossed below rim height but missed the basket cylinder
     outcome = 'miss';
   } else if (points.length > 25 && lastPoint.y > apexPx + 150) {
     outcome = 'miss';
