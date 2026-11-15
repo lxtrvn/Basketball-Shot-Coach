@@ -21,7 +21,7 @@ function githubPages404Plugin() {
 
 export default defineConfig(() => {
   return {
-    base: './',
+    base: '/Basketball-Shot-Coach/',
     plugins: [react(), tailwindcss(), githubPages404Plugin()],
     resolve: {
       alias: {
