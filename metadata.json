@@ -1,0 +1,6 @@
+{
+  "name": "HoopVision AI - Basketball CV Tracker",
+  "description": "Computer vision basketball tracking and shot arc analytics studio with OpenCV pipeline controls, video uploads, and Gemini AI coaching insights.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
